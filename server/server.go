@@ -7,13 +7,17 @@ import (
 )
 
 func Start(port string) error {
-	fs := http.FileServer(http.Dir("."))
-	http.Handle("/", fs)
 	http.HandleFunc("/greeting", greetingHandler)
+	http.Handle("/dist/", http.StripPrefix("/dist/", http.FileServer(http.Dir("./dist"))))
+	http.HandleFunc("/", spaHandler)
 
 	log.Printf("Starting server on port %s...", port)
 	log.Printf("Serving files from current directory")
 	return http.ListenAndServe(":"+port, nil)
+}
+
+func spaHandler(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "./index.html")
 }
 
 func greetingHandler(w http.ResponseWriter, r *http.Request) {

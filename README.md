@@ -4,20 +4,34 @@
 ## Install dependencies
 - [Go](https://go.dev/)
 - [Elm](https://guide.elm-lang.org/install/elm)
+- [elm-live](https://www.elm-live.com/)
 - [Task](https://taskfile.dev/)
 
-## Build everything and run the server
+## Build everything, run the server, automatically rebuild frontend changes
 ```
 ❯ task
-task: [default] task frontend
-task: [frontend] elm make www/HomePage.elm --output elm.js
+task: [serve] ./secret-santa
+task: [watch] elm-live www/Main.elm -- --output=dist/main.js --debug
+task: [backend] go build
+2025/12/26 18:06:18 Starting server on port 8080...
+2025/12/26 18:06:18 Serving files from current directory
+task: [frontend] mkdir -p dist
+task: [frontend] elm make www/Main.elm --output dist/main.js
 Success!     
 
-    HomePage ───> elm.js
+    Main ───> dist/main.js
 
-task: [default] task backend
-task: [backend] go build
-task: [default] ./secret-santa
-2025/12/25 13:52:54 Starting server on port 8080...
-2025/12/25 13:52:54 Serving files from current directory
+
+elm-live:
+  Server has been started! Server details below:
+    - Website URL: http://localhost:8000
+    - Serving files from: /home/viruslobster/src/secret-santa
+  
+
+elm-live:
+  The build has succeeded. 
+
+elm-live:
+  Watching the following files:
+    - www/**/*.elm
 ```

@@ -4,20 +4,29 @@ version: "3"
 
 tasks:
   default:
+    deps:
+      - build
+      - serve
+      - watch
+
+  serve:
     cmds:
-      - task frontend
-      - task backend
       - ./secret-santa
 
   frontend:
     cmds:
-      - elm make www/HomePage.elm --output elm.js
+      - mkdir -p dist
+      - elm make www/Main.elm --output dist/main.js
 
   backend:
     cmds:
       - go build
 
-  build:
+  watch:
     cmds:
-      - task frontend
-      - task backend
+      - elm-live www/Main.elm -- --output=dist/main.js --debug
+
+  build:
+    deps:
+      - frontend
+      - backend
