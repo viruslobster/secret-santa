@@ -8,7 +8,7 @@ tasks:
       - build
     cmds:
       - ./secret-santa 2>&1 | tee /tmp/server.log &
-      - elm-live www/Main.elm -- --output=dist/main.js --debug
+      - elm-live www/Main.elm --no-server -- --output=dist/main.js --debug
 
   serve:
     cmds:
