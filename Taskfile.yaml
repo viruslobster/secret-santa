@@ -6,12 +6,13 @@ tasks:
   default:
     deps:
       - build
-      - serve
-      - watch
+    cmds:
+      - ./secret-santa 2>&1 | tee /tmp/server.log &
+      - elm-live www/Main.elm -- --output=dist/main.js --debug
 
   serve:
     cmds:
-      - ./secret-santa
+      - ./secret-santa 2>&1 | tee /tmp/server.log
 
   frontend:
     cmds:
