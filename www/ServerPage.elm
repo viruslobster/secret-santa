@@ -1,4 +1,4 @@
-module Main exposing (main)
+module ServerPage exposing (main)
 
 import Browser
 import Browser.Navigation as Nav
@@ -125,11 +125,11 @@ body : Model -> List (Html Msg)
 body model =
     [ div [ class "jumbotron" ]
         [ h1 [] [ text "🎅 Secret Santa 🎄" ]
-        , a [ href "/group" ] [ text "Group Chat" ]
+        , a [ href "/server" ] [ text "Group Chat" ]
         , text " - "
-        , a [ href "/secret-santa" ] [ text "Your Secret Santa Chat" ]
+        , a [ href "/server/secret-santa" ] [ text "Your Secret Santa Chat" ]
         , text " - "
-        , a [ href "/giftee" ] [ text "Your Giftee Chat" ]
+        , a [ href "/server/giftee" ] [ text "Your Giftee Chat" ]
         ]
     , div [] [ chatView model ]
     ]
@@ -138,17 +138,14 @@ body model =
 chatView : Model -> Html Msg
 chatView model =
     case model.url.path of
-        "/group" ->
+        "/server" ->
             chatThread model
 
-        "/secret-santa" ->
+        "/server/secret-santa" ->
             text "keep it secret, keep it safe"
 
-        "/giftee" ->
+        "/server/giftee" ->
             text "gimmie"
-
-        "/" ->
-            text ""
 
         _ ->
             text "404"

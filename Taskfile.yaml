@@ -8,7 +8,7 @@ tasks:
       - build
     cmds:
       - ./secret-santa 2>&1 | tee /tmp/server.log &
-      - elm-live www/Main.elm --no-server -- --output=dist/main.js --debug
+      - task watch
 
   serve:
     cmds:
@@ -17,7 +17,8 @@ tasks:
   frontend:
     cmds:
       - mkdir -p dist
-      - elm make www/Main.elm --output dist/main.js
+      - elm make www/ServerPage.elm --output dist/server_page.js
+      - elm make www/Index.elm --output dist/index.js
 
   backend:
     cmds:
@@ -25,7 +26,8 @@ tasks:
 
   watch:
     cmds:
-      - elm-live www/Main.elm -- --output=dist/main.js --debug
+      - elm-live www/ServerPage.elm --no-server -- --output=dist/server_page.js --debug &
+      - elm-live www/Index.elm --no-server -- --output=dist/index.js --debug
 
   build:
     deps:

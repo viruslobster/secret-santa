@@ -2,31 +2,34 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 )
 
 func Start(port string) error {
-	http.HandleFunc("/greeting", greetingHandler)
 	http.HandleFunc("/api/sendChat", chatHandler)
 	http.HandleFunc("/api/user", userHandler)
 	http.Handle("/dist/", http.StripPrefix("/dist/", http.FileServer(http.Dir("./dist"))))
-	http.HandleFunc("/", spaHandler)
+	http.HandleFunc("/server", serverHandler)
+	http.HandleFunc("/server/", serverHandler)
+	http.HandleFunc("/", indexHandler)
 
 	log.Printf("Starting server on port %s...", port)
 	log.Printf("Serving files from current directory")
 	return http.ListenAndServe(":"+port, nil)
 }
 
-func spaHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Got spa request")
-	http.ServeFile(w, r, "./index.html")
+func serverHandler(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "./html/server.html")
 }
 
-func greetingHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "🎅 Ho ho ho! Merry Christmas from Santa! 🎄\n")
-	fmt.Fprintf(w, "Welcome to Santa's HTTP server!\n")
+func indexHandler(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+	log.Printf("Got spa request")
+	http.ServeFile(w, r, "./html/index.html")
 }
 
 func chatHandler(w http.ResponseWriter, r *http.Request) {
