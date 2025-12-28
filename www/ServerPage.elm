@@ -6,6 +6,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events as Events
 import Http
+import Json.Decode as Decode
 import Json.Encode as Encode
 import Time
 import Url
@@ -32,6 +33,30 @@ type alias Model =
     }
 
 
+type Msg
+    = LinkClicked Browser.UrlRequest
+    | UrlChanged Url.Url
+    | SendChat ChatMessage ThreadId
+    | SendChatResponse (Result Http.Error ())
+    | UpdateChatDraft String
+    | RecieveChatThread (Result Http.Error ChatThread)
+
+
+init : () -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
+init flags url key =
+    ( { key = key
+      , url = url
+      , user = "Mr. Foo"
+      , chats = []
+      , chatDraft = ""
+      }
+    , Http.get
+        { url = "/api/thread?id=0"
+        , expect = Http.expectJson RecieveChatThread chatThreadDecoder
+        }
+    )
+
+
 type alias ChatMessage =
     { message : String
     , user : String
@@ -45,24 +70,14 @@ type ChatStatus
     | Error
 
 
-init : () -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
-init flags url key =
-    ( { key = key
-      , url = url
-      , user = "Mr. Foo"
-      , chats = []
-      , chatDraft = ""
-      }
-    , Cmd.none
-    )
+type alias ThreadId =
+    Int
 
 
-type Msg
-    = LinkClicked Browser.UrlRequest
-    | UrlChanged Url.Url
-    | SendChat ChatMessage
-    | SendChatResponse (Result Http.Error ())
-    | UpdateChatDraft String
+type alias ChatThread =
+    { id : ThreadId
+    , chats : List ChatMessage
+    }
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -79,19 +94,23 @@ update msg model =
         UrlChanged url ->
             ( { model | url = url }, Cmd.none )
 
-        SendChat chat ->
-            let
-                newModel =
-                    { model | chats = model.chats ++ [ chat ], chatDraft = "" }
+        SendChat chat thread ->
+            if chat.message == "" then
+                ( model, Cmd.none )
 
-                request =
-                    Http.post
-                        { url = "/api/sendChat"
-                        , body = Http.jsonBody (encodeChat chat)
-                        , expect = Http.expectWhatever SendChatResponse
-                        }
-            in
-            ( newModel, request )
+            else
+                let
+                    newModel =
+                        { model | chats = model.chats ++ [ chat ], chatDraft = "" }
+
+                    request =
+                        Http.post
+                            { url = "/api/chat/publish"
+                            , body = Http.jsonBody (encodeChatRequest chat thread)
+                            , expect = Http.expectWhatever SendChatResponse
+                            }
+                in
+                ( newModel, request )
 
         SendChatResponse resp ->
             case resp of
@@ -107,6 +126,18 @@ update msg model =
                     in
                     ( model, Cmd.none )
 
+        RecieveChatThread resp ->
+            case resp of
+                Ok thread ->
+                    ( { model | chats = thread.chats }, Cmd.none )
+
+                Err error ->
+                    let
+                        _ =
+                            Debug.log "Recieve chat thread: " error
+                    in
+                    ( model, Cmd.none )
+
         UpdateChatDraft draft ->
             ( { model | chatDraft = draft }, Cmd.none )
 
@@ -118,11 +149,11 @@ subscriptions _ =
 
 view : Model -> Browser.Document Msg
 view model =
-    { title = "Secret Santa", body = body model }
+    { title = "Secret Santa", body = viewBody model }
 
 
-body : Model -> List (Html Msg)
-body model =
+viewBody : Model -> List (Html Msg)
+viewBody model =
     [ div [ class "jumbotron" ]
         [ h1 [] [ text "🎅 Secret Santa 🎄" ]
         , a [ href "/server" ] [ text "Group Chat" ]
@@ -131,15 +162,15 @@ body model =
         , text " - "
         , a [ href "/server/giftee" ] [ text "Your Giftee Chat" ]
         ]
-    , div [] [ chatView model ]
+    , div [] [ viewChat model ]
     ]
 
 
-chatView : Model -> Html Msg
-chatView model =
+viewChat : Model -> Html Msg
+viewChat model =
     case model.url.path of
         "/server" ->
-            chatThread model
+            viewChatThread model
 
         "/server/secret-santa" ->
             text "keep it secret, keep it safe"
@@ -151,10 +182,14 @@ chatView model =
             text "404"
 
 
-chatThread : Model -> Html Msg
-chatThread model =
+viewChatThread : Model -> Html Msg
+viewChatThread model =
+    let
+        thread =
+            0
+    in
     div [ class "chat-thread" ]
-        [ div [] (List.map chatMessage model.chats)
+        [ div [] (List.map viewChatMessage model.chats)
         , textarea
             [ value model.chatDraft, Events.onInput UpdateChatDraft ]
             []
@@ -165,15 +200,25 @@ chatThread model =
                     , user = model.user
                     , status = Unsent
                     }
+                    thread
                 )
             ]
             [ text "Send" ]
         ]
 
 
-chatMessage : ChatMessage -> Html Msg
-chatMessage chat =
+viewChatMessage : ChatMessage -> Html Msg
+viewChatMessage chat =
     div [ class "chat-message" ] [ text (chat.user ++ ": " ++ chat.message) ]
+
+
+encodeChatRequest : ChatMessage -> ThreadId -> Encode.Value
+encodeChatRequest chat thread =
+    Encode.object
+        [ ( "message", Encode.string chat.message )
+        , ( "user", Encode.string chat.user )
+        , ( "thread", Encode.int thread )
+        ]
 
 
 encodeChat : ChatMessage -> Encode.Value
@@ -182,3 +227,22 @@ encodeChat chat =
         [ ( "message", Encode.string chat.message )
         , ( "user", Encode.string chat.user )
         ]
+
+
+chatThreadDecoder : Decode.Decoder ChatThread
+chatThreadDecoder =
+    Decode.map2 ChatThread
+        (Decode.field "id" Decode.int)
+        (Decode.field "chats" (Decode.list chatDecoder))
+
+
+chatDecoder : Decode.Decoder ChatMessage
+chatDecoder =
+    Decode.map3 ChatMessage
+        (Decode.field "message" Decode.string)
+        (Decode.field "user" Decode.string)
+        (Decode.field "timestamp" Decode.int
+            |> Decode.map (\s -> s * 1000)
+            |> Decode.map Time.millisToPosix
+            |> Decode.map Sent
+        )
