@@ -13,7 +13,7 @@ func main() {
 	}
 	my_server := server.Server{Chat: client}
 
-	if err := my_server.Start("8080"); err != nil {
+	if err := my_server.Start("8000"); err != nil {
 		fmt.Printf("Server error: %v\n", err)
 	}
 }

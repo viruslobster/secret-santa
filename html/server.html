@@ -17,6 +17,20 @@
     <body>
         <script>
             var app = Elm.ServerPage.init();
+            var subscriptionByThread = new Map();
+
+            app.ports.subscribeThread.subscribe((thread_id) => {
+                const sub = subscriptionByThread.get(thread_id);
+                if (sub) {
+                    sub.close();
+                }
+                const url = `/api/thread/subscribe?id=${thread_id}`;
+                const newSub = new EventSource(url);
+                newSub.onmessage = (event) => {
+                    app.ports.recieveChatData.send([thread_id, event.data]);
+                };
+                subscriptionByThread.set(thread_id, newSub);
+            });
         </script>
     </body>
 </html>

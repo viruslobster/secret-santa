@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -15,6 +16,7 @@ type Server struct {
 func (s *Server) Start(port string) error {
 	http.HandleFunc("/api/chat/publish", s.chatHandler)
 	http.HandleFunc("/api/thread", s.threadHandler)
+	http.HandleFunc("/api/thread/subscribe", s.subscribeThreadHandler)
 	http.HandleFunc("/api/user", s.userHandler)
 	http.Handle("/dist/", http.StripPrefix("/dist/", http.FileServer(http.Dir("./dist"))))
 	http.HandleFunc("/server", s.serverHandler)
@@ -58,7 +60,7 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	chat := Chat{Message: req.Message, User: req.User, Timestamp: time.Now().Unix()}
-	err := s.Chat.Publish(chat, Thread(req.Thread))
+	err := s.Chat.Publish(chat, ThreadId(req.Thread))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -67,8 +69,8 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 type GetThreadResponse struct {
-	Id    Thread `json:"id"`
-	Chats []Chat `json:"chats"`
+	Id    ThreadId `json:"id"`
+	Chats []Chat   `json:"chats"`
 }
 
 func (s *Server) threadHandler(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +90,7 @@ func (s *Server) threadHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid thread parameter", http.StatusBadRequest)
 		return
 	}
-	chats, err := s.Chat.Chats(Thread(threadID))
+	chats, err := s.Chat.Chats(ThreadId(threadID))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -112,4 +114,51 @@ func (s *Server) userHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(user)
+}
+
+func (s *Server) subscribeThreadHandler(w http.ResponseWriter, r *http.Request) {
+	threadParam := r.URL.Query().Get("id")
+	if threadParam == "" {
+		http.Error(w, "Missing thread parameter", http.StatusBadRequest)
+		return
+	}
+
+	threadIDRaw, err := strconv.ParseUint(threadParam, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid thread parameter", http.StatusBadRequest)
+		return
+	}
+	threadID := ThreadId(threadIDRaw)
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	msgEncoder := json.NewEncoder(w)
+	messages := s.Chat.SubscribeThread(threadID)
+	defer s.Chat.UnsubscribeThread(threadID, messages)
+
+	for {
+		select {
+		case message := <-messages:
+			fmt.Fprintf(w, "data: ")
+			msgEncoder.Encode(message)
+			fmt.Fprintf(w, "\n\n")
+			flusher.Flush()
+
+		case <-r.Context().Done():
+			log.Printf("Client disconnect from thread %d\n", threadID)
+			return
+
+		case <-time.After(8 * time.Hour):
+			log.Println("WARNING: canceling thread subscription after 8 hours")
+			return
+		}
+	}
 }

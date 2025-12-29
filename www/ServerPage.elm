@@ -1,4 +1,4 @@
-module ServerPage exposing (main)
+port module ServerPage exposing (main)
 
 import Browser
 import Browser.Navigation as Nav
@@ -10,6 +10,12 @@ import Json.Decode as Decode
 import Json.Encode as Encode
 import Time
 import Url
+
+
+port subscribeThread : ThreadId -> Cmd a
+
+
+port recieveChatData : (( ThreadId, String ) -> a) -> Sub a
 
 
 main : Program () Model Msg
@@ -40,6 +46,7 @@ type Msg
     | SendChatResponse (Result Http.Error ())
     | UpdateChatDraft String
     | RecieveChatThread (Result Http.Error ChatThread)
+    | RecieveChatData ( ThreadId, String )
 
 
 init : () -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
@@ -50,11 +57,16 @@ init flags url key =
       , chats = []
       , chatDraft = ""
       }
-    , Http.get
-        { url = "/api/thread?id=0"
+    , Cmd.batch [ fetchThread 0, subscribeThread 0 ]
+    )
+
+
+fetchThread : Int -> Cmd Msg
+fetchThread id =
+    Http.get
+        { url = "/api/thread?id=" ++ String.fromInt id
         , expect = Http.expectJson RecieveChatThread chatThreadDecoder
         }
-    )
 
 
 type alias ChatMessage =
@@ -141,10 +153,83 @@ update msg model =
         UpdateChatDraft draft ->
             ( { model | chatDraft = draft }, Cmd.none )
 
+        RecieveChatData ( thread_id, data ) ->
+            let
+                newModel =
+                    case Decode.decodeString chatDecoder data of
+                        Ok chat ->
+                            { model | chats = updateChats model.chats chat }
+
+                        Err error ->
+                            let
+                                _ =
+                                    Debug.log "Decode chat error: " error
+                            in
+                            model
+            in
+            ( newModel, Cmd.none )
+
+
+{-| Incorporate a new chat message into a thread. This is a little involved because
+a message might already be in the list, in which case its status just needs to be updated
+-}
+updateChats : List ChatMessage -> ChatMessage -> List ChatMessage
+updateChats chats chat =
+    case chat.status of
+        Unsent ->
+            chats ++ [ chat ]
+
+        Error ->
+            chats ++ [ chat ]
+
+        Sent sent_at ->
+            updateSentChat chats chat.message chat.user sent_at
+
+
+{-| Incorporates a sent chat into `chats`. If the chat is from another user, it just gets appended.
+If the chat is already in `chats` as a status of Unsent or Error, we update the status to Sent ts.
+This function is idempotent.
+-}
+updateSentChat : List ChatMessage -> String -> String -> Time.Posix -> List ChatMessage
+updateSentChat chats message user ts =
+    case chats of
+        [] ->
+            [ { message = message, user = user, status = Sent ts } ]
+
+        first :: rest ->
+            let
+                continue =
+                    first :: updateSentChat rest message user ts
+
+                updateStatus =
+                    { first | status = Sent ts } :: rest
+            in
+            case first.status of
+                Unsent ->
+                    if first.message == message && first.user == user then
+                        updateStatus
+
+                    else
+                        continue
+
+                Sent sent_at ->
+                    if first.message == message && first.user == user && ts == sent_at then
+                        first :: rest
+
+                    else
+                        continue
+
+                Error ->
+                    if first.message == message && first.user == user then
+                        updateStatus
+
+                    else
+                        continue
+
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
-    Sub.none
+    recieveChatData RecieveChatData
 
 
 view : Model -> Browser.Document Msg
@@ -209,7 +294,27 @@ viewChatThread model =
 
 viewChatMessage : ChatMessage -> Html Msg
 viewChatMessage chat =
-    div [ class "chat-message" ] [ text (chat.user ++ ": " ++ chat.message) ]
+    let
+        status =
+            case chat.status of
+                Unsent ->
+                    "unsent"
+
+                Sent ts ->
+                    "sent " ++ formatTime Time.utc ts
+
+                Error ->
+                    "error"
+    in
+    div [ class "chat-message" ]
+        [ text (chat.user ++ ": " ++ chat.message ++ " (" ++ status ++ ")") ]
+
+
+formatTime : Time.Zone -> Time.Posix -> String
+formatTime zone time =
+    String.fromInt (Time.toHour zone time)
+        ++ ":"
+        ++ String.fromInt (Time.toMinute zone time)
 
 
 encodeChatRequest : ChatMessage -> ThreadId -> Encode.Value
