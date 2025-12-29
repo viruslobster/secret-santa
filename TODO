@@ -1,0 +1,30 @@
+# MVP
+- User can create an account, login, create servers, join servers, and interact with their joined servers.
+- The creator of a server:
+    - Becomes the admin (who in a later version will have special privledges)
+    - Names the server
+    - Gives the names of the rest of the users
+- After the server is created
+    - Members can copy the join link
+    - Non-members acessing the join link can pick from any unclaimed name to join as
+
+- When a user logs in and joins a server they can:
+    - Chat in the server group chat
+    - Chat with their secret santa (whos identity is hidden)
+    - Chat with their giftee (they can see the giftee's identity but not vice-versa)
+
+# TODO
+- User login
+    - Login page
+    - Users table
+    - JWT
+- UI Design
+    - Create new server flow
+    - Responsive layout
+    - Chat UI
+- DB store implementation
+- User registration
+    - WebAuthn
+
+# Roadmap
+- Beta in October
