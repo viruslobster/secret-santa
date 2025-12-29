@@ -40,11 +40,11 @@ update msg model =
 
 view : Model -> Browser.Document Msg
 view model =
-    { title = "Secret Santa", body = body model }
+    { title = "Secret Santa", body = viewBody model }
 
 
-body : Model -> List (Html Msg)
-body model =
+viewBody : Model -> List (Html Msg)
+viewBody model =
     [ div
         [ class "jumbotron" ]
         [ h1 [] [ text "🎅 Secret Santa 🎄" ] ]

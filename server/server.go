@@ -10,7 +10,7 @@ import (
 )
 
 type Server struct {
-	Chat Client
+	Chat ChatClient
 }
 
 func (s *Server) Start(port string) error {
@@ -59,7 +59,7 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "While Deserialize PublishChatRequest", http.StatusBadRequest)
 		return
 	}
-	chat := Chat{Message: req.Message, User: req.User, Timestamp: time.Now().Unix()}
+	chat := ChatMessage{Message: req.Message, User: req.User, Timestamp: time.Now().Unix()}
 	err := s.Chat.Publish(chat, ThreadId(req.Thread))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -69,8 +69,8 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 type GetThreadResponse struct {
-	Id    ThreadId `json:"id"`
-	Chats []Chat   `json:"chats"`
+	Id    ThreadId      `json:"id"`
+	Chats []ChatMessage `json:"chats"`
 }
 
 func (s *Server) threadHandler(w http.ResponseWriter, r *http.Request) {

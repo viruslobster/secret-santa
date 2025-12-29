@@ -11,24 +11,24 @@ import (
 type ThreadId uint64
 
 type Store interface {
-	Publish(chat Chat, thread ThreadId) error
-	Chats(thread ThreadId) ([]Chat, error)
+	Persist(chat ChatMessage, thread ThreadId) error
+	Load(thread ThreadId) ([]ChatMessage, error)
 }
 
 type InMemoryStore struct {
-	chats_by_thread map[ThreadId][]Chat
+	chats_by_thread map[ThreadId][]ChatMessage
 }
 
 func NewInMemoryStore() InMemoryStore {
 	return InMemoryStore{
-		chats_by_thread: make(map[ThreadId][]Chat, 1),
+		chats_by_thread: make(map[ThreadId][]ChatMessage, 1),
 	}
 }
 
-func (s *InMemoryStore) Publish(chat Chat, thread ThreadId) error {
+func (s *InMemoryStore) Persist(chat ChatMessage, thread ThreadId) error {
 	chats, ok := s.chats_by_thread[thread]
 	if !ok {
-		chats = make([]Chat, 0)
+		chats = make([]ChatMessage, 0)
 	}
 	chats = append(chats, chat)
 	log.Printf("thread %d, chats: %v", thread, chats)
@@ -36,7 +36,7 @@ func (s *InMemoryStore) Publish(chat Chat, thread ThreadId) error {
 	return nil
 }
 
-func (s *InMemoryStore) Chats(thread ThreadId) ([]Chat, error) {
+func (s *InMemoryStore) Load(thread ThreadId) ([]ChatMessage, error) {
 	chats, ok := s.chats_by_thread[thread]
 	if !ok {
 		return nil, fmt.Errorf("Thread %d not found", thread)
@@ -44,21 +44,21 @@ func (s *InMemoryStore) Chats(thread ThreadId) ([]Chat, error) {
 	return chats, nil
 }
 
-type Chat struct {
+type ChatMessage struct {
 	Message   string `json:"message"`
 	User      string `json:"user"`
 	Timestamp int64  `json:"timestamp"`
 }
 
-type Client struct {
+type ChatClient struct {
 	Store Store
 
 	mutex                 sync.RWMutex
-	subscriptionsByThread map[ThreadId][]chan Chat
+	subscriptionsByThread map[ThreadId][]chan ChatMessage
 }
 
-func (c *Client) Publish(chat Chat, thread ThreadId) error {
-	err := c.Store.Publish(chat, thread)
+func (c *ChatClient) Publish(chat ChatMessage, thread ThreadId) error {
+	err := c.Store.Persist(chat, thread)
 	if err != nil {
 		return err
 	}
@@ -80,32 +80,32 @@ func (c *Client) Publish(chat Chat, thread ThreadId) error {
 	return nil
 }
 
-func (c *Client) Chats(thread ThreadId) ([]Chat, error) {
-	chats, err := c.Store.Chats(thread)
+func (c *ChatClient) Chats(thread ThreadId) ([]ChatMessage, error) {
+	chats, err := c.Store.Load(thread)
 	return chats, err
 }
 
 // SubscribeThread returns a new channel that you can recieve chat threads.
 // When you stop recieving from the returned channel, you must call UnsubscribeThread.
-func (c *Client) SubscribeThread(thread ThreadId) chan Chat {
+func (c *ChatClient) SubscribeThread(thread ThreadId) chan ChatMessage {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
 	if c.subscriptionsByThread == nil {
-		c.subscriptionsByThread = make(map[ThreadId][]chan Chat)
+		c.subscriptionsByThread = make(map[ThreadId][]chan ChatMessage)
 	}
 	channels, ok := c.subscriptionsByThread[thread]
 	if !ok {
-		channels = make([]chan Chat, 0, 1)
+		channels = make([]chan ChatMessage, 0, 1)
 	}
-	channel := make(chan Chat, 1)
+	channel := make(chan ChatMessage, 1)
 	channels = append(channels, channel)
 	c.subscriptionsByThread[thread] = channels
 	return channel
 }
 
 // UnsubscribeThread safely closes `channel`
-func (c *Client) UnsubscribeThread(thread ThreadId, channel chan Chat) {
+func (c *ChatClient) UnsubscribeThread(thread ThreadId, channel chan ChatMessage) {
 	// Throw away any remaining data so writers don't block
 	go func() {
 		for range channel {

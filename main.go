@@ -8,7 +8,7 @@ import (
 
 func main() {
 	store := server.NewInMemoryStore()
-	client := server.Client{
+	client := server.ChatClient{
 		Store: server.Store(&store),
 	}
 	my_server := server.Server{Chat: client}
