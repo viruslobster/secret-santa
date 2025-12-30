@@ -7,7 +7,7 @@ tasks:
     deps:
       - build
     cmds:
-      - ./secret-santa 2>&1 | tee /tmp/server.log &
+      - task serve &
       - task watch
 
   serve:
