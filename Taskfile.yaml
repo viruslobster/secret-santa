@@ -12,7 +12,7 @@ tasks:
 
   serve:
     cmds:
-      - ./secret-santa 2>&1 | tee /tmp/server.log
+      - SECRET="santa eats the elves" ./secret-santa 2>&1 | tee /tmp/server.log
 
   frontend:
     cmds:

@@ -3,21 +3,24 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type Server struct {
-	Chat ChatClient
+	Chat   *ChatClient
+	Secret []byte
 }
 
 func (s *Server) Start(port string) error {
 	http.HandleFunc("/api/chat/publish", s.chatHandler)
 	http.HandleFunc("/api/thread", s.threadHandler)
 	http.HandleFunc("/api/thread/subscribe", s.subscribeThreadHandler)
-	http.HandleFunc("/api/user", s.userHandler)
 	http.Handle("/dist/", http.StripPrefix("/dist/", http.FileServer(http.Dir("./dist"))))
 	http.HandleFunc("/server", s.serverHandler)
 	http.HandleFunc("/server/", s.serverHandler)
@@ -28,8 +31,82 @@ func (s *Server) Start(port string) error {
 	return http.ListenAndServe(":"+port, nil)
 }
 
+// TODO: right now `login` always creates a JWT for the username you provide no matter what
+// there is no actual authentication going on here
+func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var request struct {
+		Username string `json:"username"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"username": request.Username,
+	})
+	tokenString, err := token.SignedString(s.Secret)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "token",
+		Value:    tokenString,
+		HttpOnly: true,
+		Secure:   false, // Only send over HTTPS, TODO: set true
+		Path:     "/",
+		MaxAge:   3600, // 1 hour
+	})
+	log.Printf("%s successful login\n", request.Username)
+	http.Redirect(w, r, "/server", http.StatusFound)
+}
+
+// authenticatedUser returns true if a user is signed in. Otherwise it returns False and
+// redirects to the login page
+func (s *Server) authenticatedUser(w http.ResponseWriter, r *http.Request) (string, bool) {
+	cookie, err := r.Cookie("token")
+	if err != nil {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return "", false
+	}
+	token, err := jwt.Parse(cookie.Value, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return s.Secret, nil
+	})
+	if err != nil || !token.Valid {
+		log.Printf("WARN: recieved token cannot be validated err: %s, valid: %t\n", err, token.Valid)
+		http.Redirect(w, r, "/", http.StatusFound)
+		return "", false
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		log.Println("ERROR: token has unexpected claims map")
+		return "", false
+	}
+	username, ok := claims["username"].(string)
+	if !ok {
+		log.Println("ERROR: token claims map missing string username")
+		return "", false
+	}
+	log.Printf("Authenticated user: %s", username)
+	return username, true
+}
+
 func (s *Server) serverHandler(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, "./html/server.html")
+	username, ok := s.authenticatedUser(w, r)
+	if !ok {
+		return
+	}
+	tmpl := template.Must(template.ParseFiles("./html/server.html"))
+	tmpl.Execute(w, map[string]string{
+		"Username": username,
+	})
 }
 
 func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
@@ -37,29 +114,33 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
-	log.Printf("Got spa request")
+	if r.Method == http.MethodPost {
+		s.login(w, r)
+		return
+	}
 	http.ServeFile(w, r, "./html/index.html")
 }
 
-type PublishChatRequest struct {
-	Message string `json:"message"`
-	User    string `json:"user"`
-	Thread  uint64 `json:"thread"`
-}
-
 func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Got chat request")
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	var req PublishChatRequest
+	user, ok := s.authenticatedUser(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Message string `json:"message"`
+		user    string
+		Thread  uint64 `json:"thread"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "While Deserialize PublishChatRequest", http.StatusBadRequest)
 		return
 	}
-	chat := ChatMessage{Message: req.Message, User: req.User, Timestamp: time.Now().Unix()}
+	req.user = user
+	chat := ChatMessage{Message: req.Message, User: req.user, Timestamp: time.Now().Unix()}
 	err := s.Chat.Publish(chat, ThreadId(req.Thread))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -78,6 +159,11 @@ func (s *Server) threadHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	_, ok := s.authenticatedUser(w, r)
+	if !ok {
+		return
+	}
+	// TODO: also check that user has access to requested thread
 
 	threadParam := r.URL.Query().Get("id")
 	if threadParam == "" {
@@ -103,20 +189,13 @@ func (s *Server) threadHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-func (s *Server) userHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+func (s *Server) subscribeThreadHandler(w http.ResponseWriter, r *http.Request) {
+	_, ok := s.authenticatedUser(w, r)
+	if !ok {
 		return
 	}
-	user := map[string]string{
-		"name": "Mr. Foo",
-		"id":   "123",
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
-}
-
-func (s *Server) subscribeThreadHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: also check that user has access to requested thread
+	//
 	threadParam := r.URL.Query().Get("id")
 	if threadParam == "" {
 		http.Error(w, "Missing thread parameter", http.StatusBadRequest)

@@ -18,7 +18,11 @@ port subscribeThread : ThreadId -> Cmd a
 port recieveChatData : (( ThreadId, String ) -> a) -> Sub a
 
 
-main : Program () Model Msg
+type alias Flags =
+    { username : String }
+
+
+main : Program Flags Model Msg
 main =
     Browser.application
         { init = init
@@ -49,11 +53,11 @@ type Msg
     | RecieveChatData ( ThreadId, String )
 
 
-init : () -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
+init : Flags -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
 init flags url key =
     ( { key = key
       , url = url
-      , user = "Mr. Foo"
+      , user = flags.username
       , chats = []
       , chatDraft = ""
       }
@@ -321,16 +325,7 @@ encodeChatRequest : ChatMessage -> ThreadId -> Encode.Value
 encodeChatRequest chat thread =
     Encode.object
         [ ( "message", Encode.string chat.message )
-        , ( "user", Encode.string chat.user )
         , ( "thread", Encode.int thread )
-        ]
-
-
-encodeChat : ChatMessage -> Encode.Value
-encodeChat chat =
-    Encode.object
-        [ ( "message", Encode.string chat.message )
-        , ( "user", Encode.string chat.user )
         ]
 
 
