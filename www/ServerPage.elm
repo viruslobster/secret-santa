@@ -159,6 +159,9 @@ update msg model =
 
         RecieveChatData ( thread_id, data ) ->
             let
+                _ =
+                    thread_id
+
                 newModel =
                     case Decode.decodeString chatDecoder data of
                         Ok chat ->

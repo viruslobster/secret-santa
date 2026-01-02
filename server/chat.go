@@ -1,48 +1,11 @@
 package server
 
 import (
-	"fmt"
 	"log"
 	"slices"
 	"sync"
 	"time"
 )
-
-type ThreadId uint64
-
-type Store interface {
-	Persist(chat ChatMessage, thread ThreadId) error
-	Load(thread ThreadId) ([]ChatMessage, error)
-}
-
-type InMemoryStore struct {
-	chats_by_thread map[ThreadId][]ChatMessage
-}
-
-func NewInMemoryStore() InMemoryStore {
-	return InMemoryStore{
-		chats_by_thread: make(map[ThreadId][]ChatMessage, 1),
-	}
-}
-
-func (s *InMemoryStore) Persist(chat ChatMessage, thread ThreadId) error {
-	chats, ok := s.chats_by_thread[thread]
-	if !ok {
-		chats = make([]ChatMessage, 0)
-	}
-	chats = append(chats, chat)
-	log.Printf("thread %d, chats: %v", thread, chats)
-	s.chats_by_thread[thread] = chats
-	return nil
-}
-
-func (s *InMemoryStore) Load(thread ThreadId) ([]ChatMessage, error) {
-	chats, ok := s.chats_by_thread[thread]
-	if !ok {
-		return nil, fmt.Errorf("Thread %d not found", thread)
-	}
-	return chats, nil
-}
 
 type ChatMessage struct {
 	Message   string `json:"message"`
@@ -58,7 +21,7 @@ type ChatClient struct {
 }
 
 func (c *ChatClient) Publish(chat ChatMessage, thread ThreadId) error {
-	err := c.Store.Persist(chat, thread)
+	err := c.Store.PersistChat(chat, thread)
 	if err != nil {
 		return err
 	}
@@ -81,7 +44,7 @@ func (c *ChatClient) Publish(chat ChatMessage, thread ThreadId) error {
 }
 
 func (c *ChatClient) Chats(thread ThreadId) ([]ChatMessage, error) {
-	chats, err := c.Store.Load(thread)
+	chats, err := c.Store.LoadThread(thread)
 	return chats, err
 }
 

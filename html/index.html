@@ -16,7 +16,108 @@
     </head>
     <body>
         <script>
+            function fromBase64Url(base64url) {
+                return Uint8Array.fromBase64(base64url, {
+                    alphabet: "base64url",
+                }).buffer;
+            }
+
+            function toBase64Url(arrayBuffer) {
+                return new Uint8Array(arrayBuffer).toBase64({
+                    alphabet: "base64url",
+                });
+            }
+
             var app = Elm.Index.init();
+
+            app.ports.createUserCredential.subscribe(async (data) => {
+                var options = data.options;
+
+                // The server uses a url compatible base64 encoding that the navigator api doesn't support
+                // We have to convert.
+                options.publicKey.challenge = fromBase64Url(
+                    options.publicKey.challenge,
+                );
+                options.publicKey.user.id = fromBase64Url(
+                    options.publicKey.user.id,
+                );
+
+                try {
+                    var credential =
+                        await navigator.credentials.create(options);
+                } catch (error) {
+                    console.error("WebAuthn registration error:", error);
+                    // TODO: tell elm of the error
+                    return;
+                }
+                const rawId = toBase64Url(credential.rawId);
+
+                // Convert base64 data back into url compatible format
+                const clientDataJSON = toBase64Url(
+                    credential.response.clientDataJSON,
+                );
+                const attestationObject = toBase64Url(
+                    credential.response.attestationObject,
+                );
+
+                var response = {
+                    userId: data.userId,
+                    response: {
+                        id: credential.id,
+                        rawId,
+                        type: credential.type,
+                        response: { clientDataJSON, attestationObject },
+                    },
+                };
+                app.ports.recieveNewUserCredential.send(response);
+            });
+
+            app.ports.getUserCredential.subscribe(async (data) => {
+                var options = data.credential;
+
+                // The server uses a url compatible base64 encoding that the navigator api doesn't support
+                // We have to convert.
+                options.publicKey.challenge = fromBase64Url(
+                    options.publicKey.challenge,
+                );
+
+                try {
+                    var credential = await navigator.credentials.get(options);
+                } catch (error) {
+                    console.error("WebAuthn login error:", error);
+                    // TODO: tell elm of the error
+                    return;
+                }
+
+                // Convert base64 data back into url compatible format
+                const rawId = toBase64Url(credential.rawId);
+                const clientDataJSON = toBase64Url(
+                    credential.response.clientDataJSON,
+                );
+                const authenticatorData = toBase64Url(
+                    credential.response.authenticatorData,
+                );
+                const signature = toBase64Url(credential.response.signature);
+                const userHandle = credential.response.userHandle
+                    ? toBase64Url(credential.response.userHandle)
+                    : null;
+
+                var response = {
+                    sessionId: data.sessionId,
+                    response: {
+                        id: credential.id,
+                        rawId,
+                        type: credential.type,
+                        response: {
+                            clientDataJSON,
+                            authenticatorData,
+                            signature,
+                            userHandle,
+                        },
+                    },
+                };
+                app.ports.recieveUserCredential.send(response);
+            });
         </script>
     </body>
 </html>
