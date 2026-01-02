@@ -47,7 +47,7 @@
                         await navigator.credentials.create(options);
                 } catch (error) {
                     console.error("WebAuthn registration error:", error);
-                    // TODO: tell elm of the error
+                    app.ports.recieveCredentialError.send(error.toString());
                     return;
                 }
                 const rawId = toBase64Url(credential.rawId);
@@ -85,7 +85,7 @@
                     var credential = await navigator.credentials.get(options);
                 } catch (error) {
                     console.error("WebAuthn login error:", error);
-                    // TODO: tell elm of the error
+                    app.ports.recieveCredentialError.send(error.toString());
                     return;
                 }
 

@@ -40,6 +40,11 @@ port getUserCredential : Encode.Value -> Cmd a
 port recieveUserCredential : (Decode.Value -> a) -> Sub a
 
 
+{-| Both the createUserCredential and getUserCredential flow use this to report errors
+-}
+port recieveCredentialError : (String -> a) -> Sub a
+
+
 type alias Model =
     { username : String
     , uiDisabled : Bool
@@ -57,6 +62,7 @@ type Msg
     | FinishRegister Decode.Value
     | FinishRegisterResponse (Result Http.Error ())
     | UserNameInput String
+    | CredentialError String
 
 
 init : () -> ( Model, Cmd Msg )
@@ -71,6 +77,7 @@ subscriptions _ =
     Sub.batch
         [ recieveNewUserCredential FinishRegister
         , recieveUserCredential FinishLogin
+        , recieveCredentialError CredentialError
         ]
 
 
@@ -166,6 +173,9 @@ update msg model =
                     ( { model | uiDisabled = False, message = "Registration failed: " ++ httpErrorToString error }
                     , Cmd.none
                     )
+
+        CredentialError error ->
+            ( { model | message = error }, Cmd.none )
 
 
 view : Model -> Browser.Document Msg
