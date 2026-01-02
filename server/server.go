@@ -45,7 +45,7 @@ func (s *Server) Start(port string) error {
 // that keeps the user logged in
 func (s *Server) approveLogin(user *User, w http.ResponseWriter, r *http.Request) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"userId": fmt.Sprintf("%x", user.ID),
+		"userId": fmt.Sprintf("%x", user.Id),
 	})
 	tokenString, err := token.SignedString(s.Secret)
 	if err != nil {
@@ -268,7 +268,7 @@ func (s *Server) registerBeginHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to generate user ID", http.StatusInternalServerError)
 		return
 	}
-	user := &User{ID: userID}
+	user := &User{Id: userID}
 
 	options, session, err := s.WebAuthn.BeginRegistration(
 		user,
@@ -347,7 +347,7 @@ func (s *Server) registerFinishHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Actual verification
-	user := &User{ID: userId}
+	user := &User{Id: userId}
 	credential, err := s.WebAuthn.CreateCredential(user, session, parsedResponse)
 	if err != nil {
 		log.Printf("Failed to create credential: %v", err)
@@ -355,8 +355,8 @@ func (s *Server) registerFinishHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user.Credentials = append(user.Credentials, *credential)
-	s.Chat.Store.RegisterUser(user)
-	log.Printf("Successfully registered user with credential ID: '%x', user ID: '%x'", credential.ID, user.ID)
+	s.Chat.Store.CreateUser(user)
+	log.Printf("Successfully registered user with credential ID: '%x', user ID: '%x'", credential.ID, user.Id)
 	s.approveLogin(user, w, r)
 }
 
