@@ -1,30 +1,28 @@
 # MVP
-- User can create an account, login, create servers, join servers, and interact with their joined servers.
-- The creator of a server:
-    - Becomes the admin (who in a later version will have special privledges)
-    - Names the server
-    - Gives the names of the rest of the users
-- After the server is created
-    - Members can copy the join link
-    - Non-members acessing the join link can pick from any unclaimed name to join as
+- We can send an invite link for the server
+- User register flow
+    - All users open the same invite link
+    - Pick from a dropdown of preselected, unclaimed names
+    - Provide their address
+    - Redirected to home
+- Home page
+    - Your name
+    - Your drawn name, tap to reveal
+    - Your address, editable
+    - Your wish list, editable
+    - Link to chats
+- Chat page
+    - Every users has two chats: one with their secret santa, one with thier giftee
+    - User can toggle between the two chats
+- Names
+    - Names will be pre-seeded into the db
+    - Matches will be computed outside the app and uploaded to the db prior to any user registrations
+    - Rules: don't match with the same as last year, no significant others
 
-- When a user logs in and joins a server they can:
-    - Chat in the server group chat
-    - Chat with their secret santa (whos identity is hidden)
-    - Chat with their giftee (they can see the giftee's identity but not vice-versa)
+# Ideas for later
+- Each user can say if they shipped their gift
 
-# TODO
-- User login
-    - Login page
-    - Users table
-    - JWT
-- UI Design
-    - Create new server flow
-    - Responsive layout
-    - Chat UI
-- DB store implementation
-- User registration
-    - WebAuthn
-
-# Roadmap
-- Beta in October
+# Tasks
+- Shawn
+- [Shawn] invite link, login form
+- [Michael] chat, backend, ui
