@@ -7,6 +7,18 @@
 - [elm-live](https://www.elm-live.com/)
 - [Task](https://taskfile.dev/)
 
+## Database
+SQLite uses `github.com/mattn/go-sqlite3`, which requires CGO enabled and a C compiler.
+
+Run migrations before starting the server:
+```sh
+go run ./cmd/hoho migrate
+```
+Or install the CLI with `go install ./cmd/hoho`, then run `hoho migrate`.
+Both the server and CLI use `./db.sqlite` relative to the working directory.
+Add numbered SQL files to `migrations/`; they run in filename order and are
+tracked in `_migrations`. Migrations are embedded, so rebuild the CLI after adding files.
+
 ## Build everything, run the server, automatically rebuild frontend changes
 ```
 ❯ task

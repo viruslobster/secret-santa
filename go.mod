@@ -6,6 +6,8 @@ require github.com/golang-jwt/jwt/v5 v5.3.0
 
 require github.com/go-webauthn/webauthn v0.15.0
 
+require github.com/mattn/go-sqlite3 v1.14.32
+
 require (
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
