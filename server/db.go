@@ -1,8 +1,8 @@
 package server
 
 import (
-	"encoding/hex"
 	"fmt"
+	"strconv"
 
 	"github.com/go-webauthn/webauthn/webauthn"
 )
@@ -15,6 +15,7 @@ type Store interface {
 	GetCache(key string) ([]byte, error)
 
 	CreateUser(user *User) error
+	UpdateUser(user *User) error
 	LoadUser(userId UserId) (*User, error)
 
 	CreateServer(server *SantaServer) error
@@ -24,16 +25,18 @@ type Store interface {
 type InMemoryStore struct {
 	chats_by_thread map[ThreadId][]ChatMessage
 	cache           map[string][]byte
-	users           map[string]*User        // key is user ID (hex encoded)
-	servers         map[string]*SantaServer // key is server ID (hex encoded)
+	users           map[UserId]*User
+	nextUserId      UserId
+	servers         map[ServerId]*SantaServer
+	nextServerId    ServerId
 }
 
 func NewInMemoryStore() InMemoryStore {
 	return InMemoryStore{
 		chats_by_thread: make(map[ThreadId][]ChatMessage, 1),
 		cache:           make(map[string][]byte),
-		users:           make(map[string]*User),
-		servers:         make(map[string]*SantaServer),
+		users:           make(map[UserId]*User),
+		servers:         make(map[ServerId]*SantaServer),
 	}
 }
 
@@ -69,43 +72,39 @@ func (s *InMemoryStore) GetCache(key string) ([]byte, error) {
 }
 
 func (s *InMemoryStore) CreateUser(user *User) error {
-	if len(user.Credentials) == 0 {
-		return fmt.Errorf("user must have at least one credential")
+	s.nextUserId++
+	user.Id = s.nextUserId
+	s.users[user.Id] = user
+	return nil
+}
+
+func (s *InMemoryStore) UpdateUser(user *User) error {
+	if _, ok := s.users[user.Id]; !ok {
+		return fmt.Errorf("user %d not found", user.Id)
 	}
-	// Store user by user ID
-	key := fmt.Sprintf("%x", user.Id)
-	_, contains := s.users[key]
-	if contains {
-		return fmt.Errorf("create user: id '%s' taken", key)
-	}
-	s.users[key] = user
+	s.users[user.Id] = user
 	return nil
 }
 
 func (s *InMemoryStore) LoadUser(userID UserId) (*User, error) {
-	key := fmt.Sprintf("%x", userID)
-	user, ok := s.users[key]
+	user, ok := s.users[userID]
 	if !ok {
-		return nil, fmt.Errorf("load user: id '%s' does not exist", key)
+		return nil, fmt.Errorf("load user: id '%d' does not exist", userID)
 	}
 	return user, nil
 }
 
 func (s *InMemoryStore) CreateServer(server *SantaServer) error {
-	key := fmt.Sprintf("%x", server.Id)
-	_, contains := s.servers[key]
-	if contains {
-		return fmt.Errorf("create server: id '%s' taken", key)
-	}
-	s.servers[key] = server
+	s.nextServerId++
+	server.Id = s.nextServerId
+	s.servers[server.Id] = server
 	return nil
 }
 
 func (s *InMemoryStore) LoadServer(serverId ServerId) (*SantaServer, error) {
-	key := fmt.Sprintf("%x", serverId)
-	server, ok := s.servers[key]
+	server, ok := s.servers[serverId]
 	if !ok {
-		return nil, fmt.Errorf("load server: id '%s' does not exist", key)
+		return nil, fmt.Errorf("load server: id '%d' does not exist", serverId)
 	}
 	return server, nil
 }
@@ -137,11 +136,11 @@ type User struct {
 }
 
 func (u *User) WebAuthnID() []byte {
-	return u.Id[:]
+	return []byte(strconv.FormatInt(int64(u.Id), 10))
 }
 
 func (u *User) WebAuthnName() string {
-	return fmt.Sprintf("user_%x", u.Id[:4])
+	return fmt.Sprintf("user_%d", u.Id)
 }
 
 func (u *User) WebAuthnDisplayName() string {
@@ -157,16 +156,13 @@ func (u *User) WebAuthnCredentials() []webauthn.Credential {
 }
 
 type ThreadId uint64
-type UserId [32]byte
-type ServerId [32]byte
+type UserId int64
+type ServerId int64
 
 func parseUserId(userId string) (UserId, error) {
-	userIdSlice, err := hex.DecodeString(userId)
-	if err != nil {
-		return UserId{}, fmt.Errorf("failed to decode hex: %w", err)
+	id, err := strconv.ParseInt(userId, 10, 64)
+	if err != nil || id <= 0 {
+		return 0, fmt.Errorf("invalid user ID: %q", userId)
 	}
-	if len(userIdSlice) != 32 {
-		return UserId{}, fmt.Errorf("invalid length: %d, expected 32", len(userIdSlice))
-	}
-	return *(*UserId)(userIdSlice), nil
+	return UserId(id), nil
 }

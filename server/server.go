@@ -45,7 +45,7 @@ func (s *Server) Start(port string) error {
 // that keeps the user logged in
 func (s *Server) approveLogin(user *User, w http.ResponseWriter, r *http.Request) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"userId": fmt.Sprintf("%x", user.Id),
+		"userId": fmt.Sprintf("%d", user.Id),
 	})
 	tokenString, err := token.SignedString(s.Secret)
 	if err != nil {
@@ -123,7 +123,7 @@ func (s *Server) serverHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	tmpl := template.Must(template.ParseFiles("./html/server.html"))
 	tmpl.Execute(w, map[string]string{
-		"Username": user.WebAuthnName(),
+		"Username": fmt.Sprintf("%d", user.Id),
 	})
 }
 
@@ -153,7 +153,7 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "While Deserialize PublishChatRequest", http.StatusBadRequest)
 		return
 	}
-	req.user = user.WebAuthnName()
+	req.user = fmt.Sprintf("%d", user.Id)
 	chat := ChatMessage{Message: req.Message, User: req.user, Timestamp: time.Now().Unix()}
 	err := s.Chat.Publish(chat, ThreadId(req.Thread))
 	if err != nil {
@@ -262,13 +262,12 @@ func (s *Server) registerBeginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate a random user ID for username-less registration
-	var userID UserId
-	if _, err := rand.Read(userID[:]); err != nil {
-		http.Error(w, "Failed to generate user ID", http.StatusInternalServerError)
+	// Allocate the database ID before giving it to the authenticator.
+	user := &User{}
+	if err := s.Chat.Store.CreateUser(user); err != nil {
+		http.Error(w, "Failed to create user", http.StatusInternalServerError)
 		return
 	}
-	user := &User{Id: userID}
 
 	options, session, err := s.WebAuthn.BeginRegistration(
 		user,
@@ -290,7 +289,7 @@ func (s *Server) registerBeginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Cached so it can be retrieved in `registerFinishHandler`
-	cacheKey := fmt.Sprintf("registration_session_%x", userID)
+	cacheKey := fmt.Sprintf("registration_session_%d", user.Id)
 	if err := s.Chat.Store.PutCache(cacheKey, sessionData); err != nil {
 		http.Error(w, "Failed to store session", http.StatusInternalServerError)
 		return
@@ -301,7 +300,7 @@ func (s *Server) registerBeginHandler(w http.ResponseWriter, r *http.Request) {
 		UserID  string                       `json:"userId"`
 	}
 	response.Options = options
-	response.UserID = fmt.Sprintf("%x", userID)
+	response.UserID = fmt.Sprintf("%d", user.Id)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
@@ -355,8 +354,11 @@ func (s *Server) registerFinishHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user.Credentials = append(user.Credentials, *credential)
-	s.Chat.Store.CreateUser(user)
-	log.Printf("Successfully registered user with credential ID: '%x', user ID: '%x'", credential.ID, user.Id)
+	if err := s.Chat.Store.UpdateUser(user); err != nil {
+		http.Error(w, "Failed to save credentials", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("Successfully registered user with credential ID: '%x', user ID: '%d'", credential.ID, user.Id)
 	s.approveLogin(user, w, r)
 }
 
@@ -445,12 +447,11 @@ func (s *Server) loginFinishHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	discoverUser := func(_credentialId, userId []byte) (webauthn.User, error) {
-		n := len(userId)
-		if n != 32 {
-			return nil, fmt.Errorf("Unexpected userId len: %d", n)
+		id, err := parseUserId(string(userId))
+		if err != nil {
+			return nil, err
 		}
-		sized := (*UserId)(userId)
-		user, err := s.Chat.Store.LoadUser(*sized)
+		user, err := s.Chat.Store.LoadUser(id)
 		if err != nil {
 			return nil, err
 		}
