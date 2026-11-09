@@ -124,9 +124,6 @@ type SantaServer struct {
 
 	// Pairing[i] = j => Users[i] is giving a gift to Users[j]
 	Pairing []int
-
-	// UserThreads[i] is the thread were Users[i] is giving a gift to Pairing[i]
-	UserThreads []int
 }
 
 // User implements the webauthn.User interface

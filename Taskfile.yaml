@@ -24,6 +24,10 @@ tasks:
     cmds:
       - go build
 
+  hoho:
+    cmds:
+      - go build -o hoho ./cmd/hoho
+
   watch:
     cmds:
       - elm-live www/ServerPage.elm --no-server -- --output=dist/server_page.js --debug &
@@ -33,3 +37,4 @@ tasks:
     deps:
       - frontend
       - backend
+      - hoho

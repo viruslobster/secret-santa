@@ -6,7 +6,14 @@
 - [Elm](https://guide.elm-lang.org/install/elm)
 - [elm-live](https://www.elm-live.com/)
 - [Task](https://taskfile.dev/)
+- A C compiler
 
+## Db setup
+Run migrations before starting the server:
+```sh
+task build
+hoho migrate
+```
 ## Build everything, run the server, automatically rebuild frontend changes
 ```
 ❯ task

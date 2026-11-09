@@ -16,9 +16,13 @@ func main() {
 		os.Exit(1)
 	}
 	secret := []byte(secret_str)
-	store := server.NewInMemoryStore()
+	store, err := server.NewSQLiteStore()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer store.Close()
 	client := server.ChatClient{
-		Store: server.Store(&store),
+		Store: store,
 	}
 	authConfig := webauthn.Config{
 		RPDisplayName: "Secret Santa",
