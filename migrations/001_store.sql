@@ -14,8 +14,6 @@ CREATE TABLE users (
 
 CREATE TABLE servers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    admin_id INTEGER NOT NULL,
-    group_thread TEXT NOT NULL,
     names TEXT NOT NULL,
     pairings TEXT NOT NULL
 );

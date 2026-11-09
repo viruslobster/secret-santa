@@ -28,6 +28,12 @@ tasks:
     cmds:
       - go build -o hoho ./cmd/hoho
 
+  migrate:
+    deps:
+      - hoho
+    cmds:
+      - hoho migrate
+
   watch:
     cmds:
       - elm-live www/ServerPage.elm --no-server -- --output=dist/server_page.js --debug &
@@ -38,3 +44,4 @@ tasks:
       - frontend
       - backend
       - hoho
+      - migrate

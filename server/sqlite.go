@@ -129,40 +129,39 @@ func (s *SQLiteStore) LoadUser(id UserId) (*User, error) {
 	return &user, nil
 }
 
-func (s *SQLiteStore) CreateServer(server *SantaServer) error {
-	for _, name := range server.Names {
+func (s *SQLiteStore) CreateServer(names []string, pairing []int) (ServerId, error) {
+	for _, name := range names {
 		if name == "" || strings.Contains(name, ",") {
-			return fmt.Errorf("names must be nonempty and cannot contain commas")
+			return 0, fmt.Errorf("names must be nonempty and cannot contain commas")
 		}
 	}
 	tx, err := s.Db.Begin()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback()
-	pairings, err := json.Marshal(server.Pairing)
-	if err != nil {
-		return err
+
+	var pairings strings.Builder
+	for i, pair := range pairing {
+		pairings.WriteString(strconv.Itoa(pair))
+		if i != len(pairing)-1 {
+			pairings.WriteString(",")
+		}
 	}
-	result, err := tx.Exec("INSERT INTO servers (admin_id, group_thread, names, pairings) VALUES (?, ?, ?, ?)",
-		server.Admin, strconv.FormatUint(uint64(server.GroupThread), 10), strings.Join(server.Names, ","), string(pairings))
+	result, err := tx.Exec("INSERT INTO servers (names, pairings) VALUES (?, ?)",
+		strings.Join(names, ","), pairings.String())
+
 	if err != nil {
-		return err
+		return 0, err
 	}
 	id, err := result.LastInsertId()
 	if err != nil {
-		return err
-	}
-	for name, user := range server.UserByName {
-		if _, err := tx.Exec("INSERT INTO server_members (server_id, name, user_id) VALUES (?, ?, ?)", id, name, user); err != nil {
-			return err
-		}
+		return 0, err
 	}
 	if err := tx.Commit(); err != nil {
-		return err
+		return 0, err
 	}
-	server.Id = ServerId(id)
-	return nil
+	return ServerId(id), nil
 }
 
 func (s *SQLiteStore) LoadServer(id ServerId) (*SantaServer, error) {
@@ -173,8 +172,8 @@ func (s *SQLiteStore) LoadServer(id ServerId) (*SantaServer, error) {
 	defer tx.Rollback()
 	server := SantaServer{Id: id, UserByName: make(map[string]UserId)}
 	var names string
-	var pairings []byte
-	if err := tx.QueryRow("SELECT admin_id, group_thread, names, pairings FROM servers WHERE id = ?", id).Scan(&server.Admin, &server.GroupThread, &names, &pairings); err != nil {
+	var pairings string
+	if err := tx.QueryRow("SELECT names, pairings FROM servers WHERE id = ?", id).Scan(&names, &pairings); err != nil {
 		return nil, err
 	}
 	if names != "" {
@@ -191,11 +190,16 @@ func (s *SQLiteStore) LoadServer(id ServerId) (*SantaServer, error) {
 	}); err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(pairings, &server.Pairing); err != nil {
-		return nil, err
-	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
+	}
+	split := strings.Split(pairings, ",")
+	server.Pairing = make([]int, len(split))
+	for i, j_str := range split {
+		server.Pairing[i], err = strconv.Atoi(j_str)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &server, nil
 }

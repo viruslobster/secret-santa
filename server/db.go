@@ -18,7 +18,7 @@ type Store interface {
 	UpdateUser(user *User) error
 	LoadUser(userId UserId) (*User, error)
 
-	CreateServer(server *SantaServer) error
+	CreateServer(names []string, pairing []int) (ServerId, error)
 	LoadServer(serverId ServerId) (*SantaServer, error)
 }
 
@@ -110,8 +110,7 @@ func (s *InMemoryStore) LoadServer(serverId ServerId) (*SantaServer, error) {
 }
 
 type SantaServer struct {
-	Id    ServerId
-	Admin UserId
+	Id ServerId
 
 	// UserByName["foo"] = 123 => UserId 123 has joined this server as "foo"
 	// "foo" must be in Names but not all values in Names are guaranteed to be
@@ -119,8 +118,7 @@ type SantaServer struct {
 	UserByName map[string]UserId
 
 	// Names available for users to claim on this server
-	Names       []string
-	GroupThread ThreadId
+	Names []string
 
 	// Pairing[i] = j => Users[i] is giving a gift to Users[j]
 	Pairing []int
