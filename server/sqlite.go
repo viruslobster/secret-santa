@@ -179,13 +179,16 @@ func (s *SQLiteStore) LoadServer(id ServerId) (*SantaServer, error) {
 	if names != "" {
 		server.Names = strings.Split(names, ",")
 	}
-	if err := loadServerRows(tx, "SELECT name, user_id FROM server_members WHERE server_id = ?", id, func(rows *sql.Rows) error {
-		var name string
+	if err := loadServerRows(tx, "SELECT name_index, user_id FROM server_members WHERE server_id = ?", id, func(rows *sql.Rows) error {
+		var index int
 		var user UserId
-		if err := rows.Scan(&name, &user); err != nil {
+		if err := rows.Scan(&index, &user); err != nil {
 			return err
 		}
-		server.UserByName[name] = user
+		if index < 0 || index >= len(server.Names) {
+			return fmt.Errorf("server %d: member name index %d out of range", id, index)
+		}
+		server.UserByName[server.Names[index]] = user
 		return nil
 	}); err != nil {
 		return nil, err

@@ -20,9 +20,11 @@ CREATE TABLE servers (
 
 CREATE TABLE server_members (
     server_id INTEGER NOT NULL REFERENCES servers(id),
-    name TEXT NOT NULL,
-    user_id INTEGER NOT NULL,
-    PRIMARY KEY (server_id, name)
+    user_id INTEGER NOT NULL REFERENCES users(id),
+
+    -- Index into servers.names
+    name_index INTEGER NOT NULL,
+    PRIMARY KEY (server_id, name_index)
 );
 
 CREATE TABLE threads (
