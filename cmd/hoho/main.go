@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand/v2"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/viruslobster/secret-santa/migrations"
@@ -15,6 +16,7 @@ import (
 const usage = `usage:
   hoho migrate
   hoho create-server [comma separated names]
+  hoho join <server_id> <user_id> <name>
 `
 
 func main() {
@@ -29,6 +31,12 @@ func main() {
 	}
 	if arg_len == 3 && os.Args[1] == "create-server" {
 		if err := createServer(os.Args[2]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if arg_len == 5 && os.Args[1] == "join" {
+		if err := joinServer(os.Args[2], os.Args[3], os.Args[4]); err != nil {
 			log.Fatal(err)
 		}
 		return
@@ -63,6 +71,24 @@ func createServer(names_string string) error {
 		return err
 	}
 	return nil
+}
+
+func joinServer(serverIDString, userIDString, name string) error {
+	serverID, err := strconv.ParseInt(serverIDString, 10, 64)
+	if err != nil || serverID <= 0 {
+		return fmt.Errorf("invalid server ID %q: expected a positive integer", serverIDString)
+	}
+	userID, err := strconv.ParseInt(userIDString, 10, 64)
+	if err != nil || userID <= 0 {
+		return fmt.Errorf("invalid user ID %q: expected a positive integer", userIDString)
+	}
+	store, err := server.NewSQLiteStore()
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	return server.JoinServer(store, server.ServerId(serverID), server.UserId(userID), name)
 }
 
 func parseNames(names_string string) []string {

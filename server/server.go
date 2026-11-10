@@ -23,6 +23,33 @@ type Server struct {
 	WebAuthn *webauthn.WebAuthn
 }
 
+// JoinServer claims a server name for an existing user.
+func JoinServer(store Store, serverID ServerId, userID UserId, name string) error {
+	santa, err := store.LoadServer(serverID)
+	if err != nil {
+		return err
+	}
+	if _, err := store.LoadUser(userID); err != nil {
+		return err
+	}
+	nameIndex := -1
+	for i, candidate := range santa.Names {
+		if candidate == name {
+			if nameIndex != -1 {
+				return fmt.Errorf("name %q is ambiguous in server %d", name, serverID)
+			}
+			nameIndex = i
+		}
+	}
+	if nameIndex == -1 {
+		return fmt.Errorf("name %q not found in server %d", name, serverID)
+	}
+	if _, claimed := santa.UserByName[name]; claimed {
+		return fmt.Errorf("name %q is already claimed in server %d", name, serverID)
+	}
+	return store.AddServerMember(serverID, userID, nameIndex)
+}
+
 func (s *Server) Start(port string) error {
 	http.HandleFunc("/api/chat/publish", s.chatHandler)
 	http.HandleFunc("/api/thread", s.threadHandler)

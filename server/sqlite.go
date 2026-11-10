@@ -130,10 +130,13 @@ func (s *SQLiteStore) LoadUser(id UserId) (*User, error) {
 }
 
 func (s *SQLiteStore) CreateServer(names []string, pairing []int) (ServerId, error) {
-	for _, name := range names {
+	normalizedNames := make([]string, len(names))
+	for i, name := range names {
+		name = strings.TrimSpace(name)
 		if name == "" || strings.Contains(name, ",") {
 			return 0, fmt.Errorf("names must be nonempty and cannot contain commas")
 		}
+		normalizedNames[i] = name
 	}
 	tx, err := s.Db.Begin()
 	if err != nil {
@@ -149,7 +152,7 @@ func (s *SQLiteStore) CreateServer(names []string, pairing []int) (ServerId, err
 		}
 	}
 	result, err := tx.Exec("INSERT INTO servers (names, pairings) VALUES (?, ?)",
-		strings.Join(names, ","), pairings.String())
+		strings.Join(normalizedNames, ","), pairings.String())
 
 	if err != nil {
 		return 0, err
@@ -162,6 +165,12 @@ func (s *SQLiteStore) CreateServer(names []string, pairing []int) (ServerId, err
 		return 0, err
 	}
 	return ServerId(id), nil
+}
+
+func (s *SQLiteStore) AddServerMember(serverID ServerId, userID UserId, nameIndex int) error {
+	_, err := s.Db.Exec("INSERT INTO server_members (server_id, user_id, name_index) VALUES (?, ?, ?)",
+		serverID, userID, nameIndex)
+	return err
 }
 
 func (s *SQLiteStore) LoadServer(id ServerId) (*SantaServer, error) {

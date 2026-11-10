@@ -20,6 +20,7 @@ type Store interface {
 
 	CreateServer(names []string, pairing []int) (ServerId, error)
 	LoadServer(serverId ServerId) (*SantaServer, error)
+	AddServerMember(serverID ServerId, userID UserId, nameIndex int) error
 }
 
 type InMemoryStore struct {
