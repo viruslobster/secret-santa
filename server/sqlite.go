@@ -61,10 +61,43 @@ func (s *SQLiteStore) LoadThread(thread ThreadId) ([]ChatMessage, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if len(chats) == 0 {
-		return nil, fmt.Errorf("thread %d not found", thread)
-	}
 	return chats, nil
+}
+
+// ThreadUser checks access and returns only identities the viewer may see.
+// A nil user means the sender's identity is hidden, not that access was denied.
+func (s *SQLiteStore) ThreadUser(thread ThreadId, sender, viewer UserId) (*ThreadUser, error) {
+	var santa sql.NullInt64
+	var nameIndex int
+	var names string
+	err := s.Db.QueryRow(`SELECT t.santa, m.name_index, s.names
+		FROM threads t JOIN server_members m ON m.server_id = t.server_id
+		JOIN servers s ON s.id = t.server_id
+		WHERE t.id = ? AND m.user_id = ?
+		AND m.user_id IN (t.santa, t.giftee)
+		AND ? IN (t.santa, t.giftee)
+		`, thread, sender, viewer).Scan(&santa, &nameIndex, &names)
+	if err != nil {
+		return nil, err
+	}
+	if sender != viewer && santa.Valid && santa.Int64 == int64(sender) {
+		return nil, nil
+	}
+	members := strings.Split(names, ",")
+	if nameIndex < 0 || nameIndex >= len(members) {
+		return nil, fmt.Errorf("invalid member name index")
+	}
+	return &ThreadUser{Id: sender, Name: members[nameIndex]}, nil
+}
+
+func (s *SQLiteStore) UserThreads(user UserId, server ServerId) (ServerId, ThreadId, ThreadId, error) {
+	var santa, giftee ThreadId
+	err := s.Db.QueryRow(`SELECT s.server_id, s.id, f.id
+		FROM threads s
+		JOIN threads f ON f.server_id = s.server_id AND f.santa = ?
+		WHERE s.giftee = ? AND (? = 0 OR s.server_id = ?)
+		ORDER BY s.server_id LIMIT 1`, user, user, server, server).Scan(&server, &santa, &giftee)
+	return server, santa, giftee, err
 }
 
 func (s *SQLiteStore) PutCache(key string, value []byte) error {
@@ -130,6 +163,16 @@ func (s *SQLiteStore) LoadUser(id UserId) (*User, error) {
 }
 
 func (s *SQLiteStore) CreateServer(names []string, pairing []int) (ServerId, error) {
+	if len(pairing) != len(names) || len(names) < 2 {
+		return 0, fmt.Errorf("need at least two names and one pairing per name")
+	}
+	seen := make(map[int]bool)
+	for santa, giftee := range pairing {
+		if giftee < 0 || giftee >= len(names) || santa == giftee || seen[giftee] {
+			return 0, fmt.Errorf("pairings must assign each person a different giftee")
+		}
+		seen[giftee] = true
+	}
 	normalizedNames := make([]string, len(names))
 	for i, name := range names {
 		name = strings.TrimSpace(name)
@@ -161,6 +204,11 @@ func (s *SQLiteStore) CreateServer(names []string, pairing []int) (ServerId, err
 	if err != nil {
 		return 0, err
 	}
+	for index := range names {
+		if _, err := tx.Exec("INSERT INTO threads (server_id, name_index, santa, giftee) VALUES (?, ?, NULL, NULL)", id, index); err != nil {
+			return 0, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
@@ -168,9 +216,37 @@ func (s *SQLiteStore) CreateServer(names []string, pairing []int) (ServerId, err
 }
 
 func (s *SQLiteStore) AddServerMember(serverID ServerId, userID UserId, nameIndex int) error {
-	_, err := s.Db.Exec("INSERT INTO server_members (server_id, user_id, name_index) VALUES (?, ?, ?)",
-		serverID, userID, nameIndex)
-	return err
+	server, err := s.LoadServer(serverID)
+	if err != nil {
+		return err
+	}
+	if nameIndex < 0 || nameIndex >= len(server.Names) {
+		return fmt.Errorf("invalid name index")
+	}
+	for _, member := range server.UserByName {
+		if member == userID {
+			return fmt.Errorf("user already joined this server")
+		}
+	}
+	tx, err := s.Db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("INSERT INTO server_members (server_id, user_id, name_index) VALUES (?, ?, ?)", serverID, userID, nameIndex); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("UPDATE threads SET santa = ? WHERE server_id = ? AND name_index = ?", userID, serverID, nameIndex); err != nil {
+		return err
+	}
+	for santa, giftee := range server.Pairing {
+		if giftee == nameIndex {
+			if _, err := tx.Exec("UPDATE threads SET giftee = ? WHERE server_id = ? AND name_index = ?", userID, serverID, santa); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *SQLiteStore) LoadServer(id ServerId) (*SantaServer, error) {

@@ -17,7 +17,7 @@
     <body>
         <script>
             var app = Elm.ServerPage.init({
-                flags: { username: "{{.Username}}" },
+                flags: { name: "{{.Name}}", userId: {{.UserId}}, thread: {{.Thread}}, server: {{.Server}} },
             });
             var subscriptionByThread = new Map();
 

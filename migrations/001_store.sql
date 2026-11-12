@@ -29,6 +29,9 @@ CREATE TABLE server_members (
 
 CREATE TABLE threads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    santa INTEGER NOT NULL REFERENCES users(id),
-    giftee INTEGER NOT NULL REFERENCES users(id)
+    server_id INTEGER REFERENCES servers(id),
+    -- Index into servers.names, used to link this thread with a pairing
+    name_index INTEGER NOT NULL,
+    santa INTEGER REFERENCES users(id),
+    giftee INTEGER REFERENCES users(id)
 );

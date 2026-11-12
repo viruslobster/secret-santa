@@ -19,7 +19,7 @@ port recieveChatData : (( ThreadId, String ) -> a) -> Sub a
 
 
 type alias Flags =
-    { username : String }
+    { name : String, userId : Int, thread : ThreadId, server : Int }
 
 
 main : Program Flags Model Msg
@@ -37,9 +37,14 @@ main =
 type alias Model =
     { key : Nav.Key
     , url : Url.Url
+    , thread : ThreadId
+    , server : Int
+    , name : String
+    , userId : Int
     , user : String
     , chats : List ChatMessage
     , chatDraft : String
+    , error : String
     }
 
 
@@ -57,19 +62,34 @@ init : Flags -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
 init flags url key =
     ( { key = key
       , url = url
-      , user = flags.username
+      , name = flags.name
+      , userId = flags.userId
+      , user = "You"
+      , thread = flags.thread
+      , server = flags.server
       , chats = []
       , chatDraft = ""
+      , error = ""
       }
-    , Cmd.batch [ fetchThread 0, subscribeThread 0 ]
+    , Cmd.batch [ fetchThread flags.userId flags.thread, subscribeThread flags.thread ]
     )
 
 
-fetchThread : Int -> Cmd Msg
-fetchThread id =
+httpError : Http.Error -> String
+httpError error =
+    case error of
+        Http.BadStatus status ->
+            "HTTP " ++ String.fromInt status ++ ". Try reloading or logging in again."
+
+        _ ->
+            "Please check your connection and reload."
+
+
+fetchThread : Int -> ThreadId -> Cmd Msg
+fetchThread userId id =
     Http.get
         { url = "/api/thread?id=" ++ String.fromInt id
-        , expect = Http.expectJson RecieveChatThread chatThreadDecoder
+        , expect = Http.expectJson RecieveChatThread (chatThreadDecoder userId)
         }
 
 
@@ -102,7 +122,7 @@ update msg model =
         LinkClicked urlRequest ->
             case urlRequest of
                 Browser.Internal url ->
-                    ( model, Nav.pushUrl model.key (Url.toString url) )
+                    ( model, Nav.load (Url.toString url) )
 
                 Browser.External href ->
                     ( model, Nav.load href )
@@ -117,7 +137,7 @@ update msg model =
             else
                 let
                     newModel =
-                        { model | chats = model.chats ++ [ chat ], chatDraft = "" }
+                        { model | chats = model.chats ++ [ chat ], chatDraft = "", error = "" }
 
                     request =
                         Http.post
@@ -134,13 +154,8 @@ update msg model =
                 Ok () ->
                     ( model, Cmd.none )
 
-                -- TODO: retry or add an error to the chat
                 Err error ->
-                    let
-                        _ =
-                            Debug.log "Chat send error" error
-                    in
-                    ( model, Cmd.none )
+                    ( { model | error = "Message was not sent: " ++ httpError error }, Cmd.none )
 
         RecieveChatThread resp ->
             case resp of
@@ -148,11 +163,7 @@ update msg model =
                     ( { model | chats = thread.chats }, Cmd.none )
 
                 Err error ->
-                    let
-                        _ =
-                            Debug.log "Recieve chat thread: " error
-                    in
-                    ( model, Cmd.none )
+                    ( { model | error = "Could not load chat: " ++ httpError error }, Cmd.none )
 
         UpdateChatDraft draft ->
             ( { model | chatDraft = draft }, Cmd.none )
@@ -163,7 +174,7 @@ update msg model =
                     thread_id
 
                 newModel =
-                    case Decode.decodeString chatDecoder data of
+                    case Decode.decodeString (chatDecoder model.userId) data of
                         Ok chat ->
                             { model | chats = updateChats model.chats chat }
 
@@ -248,27 +259,37 @@ viewBody : Model -> List (Html Msg)
 viewBody model =
     [ div [ class "jumbotron" ]
         [ h1 [] [ text "🎅 Secret Santa 🎄" ]
-        , a [ href "/server" ] [ text "Group Chat" ]
+        , p [] [ text ("Hello " ++ model.name) ]
+        , a [ href ("/server/" ++ String.fromInt model.server ++ "/santa") ] [ text "Your Secret Santa Chat" ]
         , text " - "
-        , a [ href "/server/secret-santa" ] [ text "Your Secret Santa Chat" ]
-        , text " - "
-        , a [ href "/server/giftee" ] [ text "Your Giftee Chat" ]
+        , a [ href ("/server/" ++ String.fromInt model.server ++ "/giftee") ] [ text "Your Giftee Chat" ]
         ]
+    , h2 []
+        [ text
+            (case String.split "/" model.url.path of
+                [ "", "server", _, "santa" ] ->
+                    "Your Secret Santa Chat"
+
+                [ "", "server", _, "giftee" ] ->
+                    "Your Giftee Chat"
+
+                _ ->
+                    "Chat not found"
+            )
+        ]
+    , div [ attribute "role" "alert" ] [ text model.error ]
     , div [] [ viewChat model ]
     ]
 
 
 viewChat : Model -> Html Msg
 viewChat model =
-    case model.url.path of
-        "/server" ->
+    case String.split "/" model.url.path of
+        [ "", "server", _, "santa" ] ->
             viewChatThread model
 
-        "/server/secret-santa" ->
-            text "keep it secret, keep it safe"
-
-        "/server/giftee" ->
-            text "gimmie"
+        [ "", "server", _, "giftee" ] ->
+            viewChatThread model
 
         _ ->
             text "404"
@@ -278,7 +299,7 @@ viewChatThread : Model -> Html Msg
 viewChatThread model =
     let
         thread =
-            0
+            model.thread
     in
     div [ class "chat-thread" ]
         [ div [] (List.map viewChatMessage model.chats)
@@ -332,18 +353,33 @@ encodeChatRequest chat thread =
         ]
 
 
-chatThreadDecoder : Decode.Decoder ChatThread
-chatThreadDecoder =
+chatThreadDecoder : Int -> Decode.Decoder ChatThread
+chatThreadDecoder userId =
     Decode.map2 ChatThread
         (Decode.field "id" Decode.int)
-        (Decode.field "chats" (Decode.list chatDecoder))
+        (Decode.field "chats" (Decode.list (chatDecoder userId)))
 
 
-chatDecoder : Decode.Decoder ChatMessage
-chatDecoder =
+chatDecoder : Int -> Decode.Decoder ChatMessage
+chatDecoder userId =
     Decode.map3 ChatMessage
         (Decode.field "message" Decode.string)
-        (Decode.field "user" Decode.string)
+        (Decode.field "user"
+            (Decode.nullable
+                (Decode.map2
+                    (\id name ->
+                        if id == userId then
+                            "You"
+
+                        else
+                            name
+                    )
+                    (Decode.field "id" Decode.int)
+                    (Decode.field "name" Decode.string)
+                )
+            )
+            |> Decode.map (Maybe.withDefault "Santa")
+        )
         (Decode.field "timestamp" Decode.int
             |> Decode.map (\s -> s * 1000)
             |> Decode.map Time.millisToPosix

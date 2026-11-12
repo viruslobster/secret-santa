@@ -7,9 +7,16 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 )
 
+type ThreadUser struct {
+	Id   UserId `json:"id"`
+	Name string `json:"name"`
+}
+
 type Store interface {
 	PersistChat(chat ChatMessage, thread ThreadId) error
 	LoadThread(thread ThreadId) ([]ChatMessage, error)
+	ThreadUser(thread ThreadId, sender, viewer UserId) (*ThreadUser, error)
+	UserThreads(user UserId, server ServerId) (ServerId, ThreadId, ThreadId, error)
 
 	PutCache(key string, value []byte) error
 	GetCache(key string) ([]byte, error)

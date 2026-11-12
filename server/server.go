@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
@@ -87,7 +88,9 @@ func (s *Server) approveLogin(user *User, w http.ResponseWriter, r *http.Request
 		Path:     "/",
 		MaxAge:   3600, // 1 hour
 	})
-	http.Redirect(w, r, "/server", http.StatusFound)
+	// The frontend navigates after success; don't let the destination's status
+	// turn a successful login or registration into an API failure.
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // authenticatedUser returns true if a user is signed in. Otherwise it returns False and
@@ -143,14 +146,85 @@ func (s *Server) authenticatedUser(w http.ResponseWriter, r *http.Request) (*Use
 	return user, true
 }
 
+// parseServerPath returns an HTTP error status for an invalid path, or zero.
+func parseServerPath(path string) (ServerId, string, int) {
+	if path == "/server" {
+		return 0, "", 0
+	}
+	if !strings.HasPrefix(path, "/server/") {
+		return 0, "", http.StatusNotFound
+	}
+	parts := strings.Split(strings.TrimPrefix(path, "/server/"), "/")
+	if len(parts) > 2 {
+		return 0, "", http.StatusNotFound
+	}
+	chat := ""
+	if len(parts) == 2 {
+		chat = parts[1]
+	}
+	id, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || id <= 0 {
+		return 0, "", http.StatusBadRequest
+	}
+	return ServerId(id), chat, 0
+}
+
 func (s *Server) serverHandler(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.authenticatedUser(w, r)
 	if !ok {
 		return
 	}
+	serverID, chat, status := parseServerPath(r.URL.Path)
+	if status != 0 {
+		if status == http.StatusNotFound {
+			http.NotFound(w, r)
+		} else {
+			http.Error(w, "Invalid server", status)
+		}
+		return
+	}
+	serverID, santa, giftee, err := s.Chat.Store.UserThreads(user.Id, serverID)
+	if err != nil {
+		http.Error(w, "Join a server before opening chat", http.StatusForbidden)
+		return
+	}
+	if chat == "" {
+		http.Redirect(w, r, fmt.Sprintf("/server/%d/santa", serverID), http.StatusFound)
+		return
+	}
+	var thread ThreadId
+	switch chat {
+	case "santa":
+		thread = santa
+	case "giftee":
+		thread = giftee
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	_, err = s.Chat.Store.ThreadUser(thread, user.Id, user.Id)
+	if err != nil {
+		http.Error(w, "Thread access denied", http.StatusForbidden)
+		return
+	}
+	server, err := s.Chat.Store.LoadServer(serverID)
+	if err != nil {
+		http.Error(w, "Could not load server", http.StatusInternalServerError)
+		return
+	}
+	name := ""
+	for memberName, memberID := range server.UserByName {
+		if memberID == user.Id {
+			name = memberName
+			break
+		}
+	}
 	tmpl := template.Must(template.ParseFiles("./html/server.html"))
-	tmpl.Execute(w, map[string]string{
-		"Username": fmt.Sprintf("%d", user.Id),
+	tmpl.Execute(w, map[string]any{
+		"Name":   name,
+		"UserId": user.Id,
+		"Thread": thread,
+		"Server": serverID,
 	})
 }
 
@@ -180,19 +254,30 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "While Deserialize PublishChatRequest", http.StatusBadRequest)
 		return
 	}
+	if _, err := s.Chat.Store.ThreadUser(ThreadId(req.Thread), user.Id, user.Id); err != nil {
+		http.Error(w, "Thread access denied", http.StatusForbidden)
+		return
+	}
 	req.user = fmt.Sprintf("%d", user.Id)
 	chat := ChatMessage{Message: req.Message, User: req.user, Timestamp: time.Now().Unix()}
 	err := s.Chat.Publish(chat, ThreadId(req.Thread))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.WriteHeader(http.StatusOK)
 }
 
+type ChatMessageResponse struct {
+	Message   string      `json:"message"`
+	User      *ThreadUser `json:"user"`
+	Timestamp int64       `json:"timestamp"`
+}
+
 type GetThreadResponse struct {
-	Id    ThreadId      `json:"id"`
-	Chats []ChatMessage `json:"chats"`
+	Id    ThreadId              `json:"id"`
+	Chats []ChatMessageResponse `json:"chats"`
 }
 
 func (s *Server) threadHandler(w http.ResponseWriter, r *http.Request) {
@@ -200,12 +285,10 @@ func (s *Server) threadHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	_, ok := s.authenticatedUser(w, r)
+	user, ok := s.authenticatedUser(w, r)
 	if !ok {
 		return
 	}
-	// TODO: also check that user has access to requested thread
-
 	threadParam := r.URL.Query().Get("id")
 	if threadParam == "" {
 		http.Error(w, "Missing thread parameter", http.StatusBadRequest)
@@ -217,13 +300,36 @@ func (s *Server) threadHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid thread parameter", http.StatusBadRequest)
 		return
 	}
+	if _, err := s.Chat.Store.ThreadUser(ThreadId(threadID), user.Id, user.Id); err != nil {
+		http.Error(w, "Thread access denied", http.StatusForbidden)
+		return
+	}
 	chats, err := s.Chat.Chats(ThreadId(threadID))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	messages := make([]ChatMessageResponse, 0, len(chats))
+	for _, chat := range chats {
+		sender, err := parseUserId(chat.User)
+		if err != nil {
+			http.Error(w, "Could not load chat", http.StatusInternalServerError)
+			return
+		}
+		identity, err := s.Chat.Store.ThreadUser(ThreadId(threadID), sender, user.Id)
+		if err != nil {
+			http.Error(w, "Could not load chat", http.StatusInternalServerError)
+			return
+		}
+		messages = append(messages, ChatMessageResponse{
+			Message:   chat.Message,
+			User:      identity,
+			Timestamp: chat.Timestamp,
+		})
+	}
 	response := GetThreadResponse{
-		Chats: chats,
+		Id:    ThreadId(threadID),
+		Chats: messages,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -231,12 +337,10 @@ func (s *Server) threadHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) subscribeThreadHandler(w http.ResponseWriter, r *http.Request) {
-	_, ok := s.authenticatedUser(w, r)
+	user, ok := s.authenticatedUser(w, r)
 	if !ok {
 		return
 	}
-	// TODO: also check that user has access to requested thread
-	//
 	threadParam := r.URL.Query().Get("id")
 	if threadParam == "" {
 		http.Error(w, "Missing thread parameter", http.StatusBadRequest)
@@ -249,6 +353,10 @@ func (s *Server) subscribeThreadHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	threadID := ThreadId(threadIDRaw)
+	if _, err := s.Chat.Store.ThreadUser(threadID, user.Id, user.Id); err != nil {
+		http.Error(w, "Thread access denied", http.StatusForbidden)
+		return
+	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -267,8 +375,22 @@ func (s *Server) subscribeThreadHandler(w http.ResponseWriter, r *http.Request) 
 	for {
 		select {
 		case message := <-messages:
+			sender, err := parseUserId(message.User)
+			if err != nil {
+				log.Printf("Invalid chat sender: %v", err)
+				return
+			}
+			identity, err := s.Chat.Store.ThreadUser(threadID, sender, user.Id)
+			if err != nil {
+				log.Printf("Cannot access chat sender: %v", err)
+				return
+			}
 			fmt.Fprintf(w, "data: ")
-			msgEncoder.Encode(message)
+			msgEncoder.Encode(ChatMessageResponse{
+				Message:   message.Message,
+				User:      identity,
+				Timestamp: message.Timestamp,
+			})
 			fmt.Fprintf(w, "\n\n")
 			flusher.Flush()
 

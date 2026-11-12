@@ -100,6 +100,15 @@ func parseNames(names_string string) []string {
 	return names
 }
 
+func isPairingValid(pairing []int) bool {
+	for santa, giftee := range pairing {
+		if santa == giftee {
+			return false
+		}
+	}
+	return true
+}
+
 func pairNames(names []string) ([]int, error) {
 	if len(names) <= 1 {
 		return nil, errors.New("need at least two names")
@@ -109,10 +118,12 @@ func pairNames(names []string) ([]int, error) {
 	for i := range pairing {
 		pairing[i] = i
 	}
-	rand.Shuffle(len(pairing), func(i, j int) {
-		var swap = pairing[i]
-		pairing[i] = pairing[j]
-		pairing[j] = swap
-	})
-	return pairing, nil
+	for {
+		rand.Shuffle(len(pairing), func(i, j int) {
+			pairing[i], pairing[j] = pairing[j], pairing[i]
+		})
+		if isPairingValid(pairing) {
+			return pairing, nil
+		}
+	}
 }
